@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GBP Console</title>
+<meta name="description" content="Operations console for the Assign Over Google Business Profile automation.">
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' rx='4' fill='%232a78d6'/><rect x='4' y='8' width='2' height='4' fill='white'/><rect x='7' y='5' width='2' height='7' fill='white'/><rect x='10' y='3' width='2' height='9' fill='white'/></svg>">
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap top-inner">
+    <div class="brand">
+      <strong>GBP Console</strong>
+      <span>Assign Over</span>
+    </div>
+
+    <nav class="views" aria-label="Views">
+      <button data-view="overview"  aria-current="true">Overview</button>
+      <button data-view="approvals" aria-current="false">Approvals</button>
+      <button data-view="portal"    aria-current="false">Client report</button>
+    </nav>
+
+    <button class="conn" id="conn" title="Connection settings">
+      <span class="dot demo"></span>
+      <span class="conn-label">Demo data</span>
+    </button>
+
+    <button class="icon-btn" id="theme" title="Toggle light and dark" aria-label="Toggle light and dark">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="9"></circle>
+        <path d="M12 3a9 9 0 0 0 0 18z" fill="currentColor" stroke="none"></path>
+      </svg>
+    </button>
+  </div>
+</header>
+
+<main class="wrap" id="main">
+  <p class="empty">Loading…</p>
+</main>
+
+<dialog id="conn-dialog">
+  <h2>Connection</h2>
+  <p class="hint" style="margin-top:6px">
+    This page stores no data of its own. Point it at your n8n endpoint and it
+    will fetch live figures on each load. Leave both fields empty to browse
+    sample data instead.
+  </p>
+
+  <form method="dialog">
+    <label class="field">
+      n8n webhook URL
+      <input type="url" id="f-endpoint" placeholder="https://n8n.example.com/webhook/gbp-console"
+             autocomplete="off" spellcheck="false">
+    </label>
+
+    <label class="field">
+      Bearer token
+      <input type="password" id="f-token" placeholder="the token set on the webhook credential"
+             autocomplete="off" spellcheck="false">
+    </label>
+
+    <p class="hint">
+      Both are kept in this browser only, and are sent to the endpoint above and
+      nowhere else. Anyone using this browser profile can read them, so use a
+      token scoped to this console and rotate it if the machine is shared.
+    </p>
+
+    <div class="qactions" style="margin-top:18px">
+      <button class="btn primary" id="conn-save">Save &amp; reload</button>
+      <button class="btn" value="cancel">Cancel</button>
+      <button class="btn danger" id="conn-clear" style="margin-left:auto">Disconnect</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="assets/app.js"></script>
+</body>
+</html>
