@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Connect the Console</title>
+<meta name="description" content="Four-step setup to connect the GBP console to its n8n API.">
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' rx='4' fill='%232a78d6'/><rect x='4' y='8' width='2' height='4' fill='white'/><rect x='7' y='5' width='2' height='7' fill='white'/><rect x='10' y='3' width='2' height='9' fill='white'/></svg>">
+<link rel="stylesheet" href="assets/styles.css">
+<style>
+  .steps { counter-reset: step; display: grid; gap: 16px; max-width: 760px; }
+  /* Grid and flex children default to min-width:auto, which refuses to shrink
+     below their content — the long PowerShell line below would then push the
+     whole page wider than a phone screen. */
+  .steps > *, .snippet, .kv-row > * { min-width: 0; }
+  .step {
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 20px 20px 20px 62px; position: relative;
+  }
+  .step::before {
+    counter-increment: step; content: counter(step);
+    position: absolute; left: 20px; top: 20px;
+    width: 26px; height: 26px; border-radius: 50%;
+    background: var(--text-primary); color: var(--surface-1);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.8rem; font-weight: 600;
+  }
+  .step.done::before {
+    content: '✓'; background: var(--good); color: #fff;
+  }
+  .step h2 { margin-bottom: 6px; }
+  .step p { color: var(--text-secondary); font-size: 0.9rem; margin: 8px 0; }
+  .step p.lede { margin-top: 0; }
+
+  .snippet {
+    position: relative; background: var(--plane); border: 1px solid var(--border);
+    border-radius: 8px; padding: 12px 54px 12px 12px; margin: 12px 0;
+    font-family: ui-monospace, "Cascadia Code", "Consolas", monospace;
+    font-size: 0.82rem; line-height: 1.5; overflow-x: auto; white-space: pre;
+    color: var(--text-primary);
+  }
+  .snippet button {
+    position: absolute; top: 8px; right: 8px;
+    font: inherit; font-family: var(--font); font-size: 0.72rem; cursor: pointer;
+    border: 1px solid var(--border); background: var(--surface-1);
+    color: var(--text-secondary); border-radius: 6px; padding: 3px 8px;
+  }
+  .snippet button:hover { color: var(--text-primary); }
+
+  .kv { display: grid; gap: 8px; margin: 12px 0; }
+  .kv-row {
+    display: grid; grid-template-columns: 180px 1fr; gap: 12px;
+    align-items: center; font-size: 0.875rem;
+  }
+  .kv-row .k { color: var(--text-muted); }
+  .kv-row .v {
+    font-family: ui-monospace, "Cascadia Code", "Consolas", monospace;
+    background: var(--plane); border: 1px solid var(--border);
+    border-radius: 6px; padding: 5px 9px; word-break: break-all;
+  }
+
+  .warn {
+    border-left: 3px solid var(--warning); background: var(--plane);
+    border-radius: 6px; padding: 10px 12px; font-size: 0.85rem;
+    color: var(--text-secondary); margin: 12px 0;
+  }
+  .warn strong { color: var(--text-primary); }
+
+  .result { margin-top: 14px; font-size: 0.9rem; display: none; }
+  .result.on { display: block; }
+  .result .head { font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  .result.ok  .head { color: var(--delta-up); }
+  .result.bad .head { color: var(--critical); }
+  .result ul { margin: 8px 0 0; padding-left: 18px; color: var(--text-secondary); }
+  .result li { margin-bottom: 4px; }
+  .found { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .found span {
+    font-size: 0.78rem; border: 1px solid var(--border);
+    border-radius: 999px; padding: 3px 10px; color: var(--text-secondary);
+  }
+  @media (max-width: 560px) {
+    .kv-row { grid-template-columns: 1fr; gap: 3px; }
+    .step { padding: 18px 16px 18px 54px; }
+    .step::before { left: 16px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap top-inner">
+    <div class="brand"><strong>Connect the Console</strong><span>Assign Over</span></div>
+    <nav class="views" aria-label="Views">
+      <a class="btn" href="index.html" style="text-decoration:none">Open console →</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="section" style="max-width:760px">
+    <h1>Four steps, about five minutes</h1>
+    <p style="color:var(--text-secondary)">
+      The console holds no data of its own. It reads live figures from your n8n
+      webhook, authenticated with a token you create here. Nothing on this page
+      is sent anywhere except to your own n8n instance.
+    </p>
+  </div>
+
+  <div class="steps section">
+
+    <!-- 1 -->
+    <div class="step" id="s1">
+      <h2>Generate a token</h2>
+      <p class="lede">
+        Run this in PowerShell. It builds a 40-character random string on your
+        machine, so the token never travels through a chat window or an email.
+      </p>
+      <div class="snippet">-join ((48..57) + (65..90) + (97..122) | Get-Random -Count 40 | % {[char]$_})<button data-copy>Copy</button></div>
+      <p>Keep the output to hand — you will paste it twice, in step 2 and step 4.</p>
+    </div>
+
+    <!-- 2 -->
+    <div class="step" id="s2">
+      <h2>Create the credential in n8n</h2>
+      <p class="lede">
+        In n8n: <strong>Credentials → Add credential → Header Auth</strong>. Fill
+        in exactly two fields and rename the credential itself.
+      </p>
+      <div class="kv">
+        <div class="kv-row"><span class="k">Credential name</span><span class="v">GBP Console Token</span></div>
+        <div class="kv-row"><span class="k">Name</span><span class="v">Authorization</span></div>
+        <div class="kv-row"><span class="k">Value</span><span class="v">Bearer &lt;your token&gt;</span></div>
+      </div>
+      <div class="warn">
+        <strong>The two things people get wrong here.</strong>
+        The field labelled <em>Name</em> is the HTTP header name, not a label for
+        the credential — it must be exactly <code>Authorization</code>. And the
+        word <code>Bearer</code>, followed by one space, belongs at the start of
+        the Value, because that is what the console sends.
+      </div>
+    </div>
+
+    <!-- 3 -->
+    <div class="step" id="s3">
+      <h2>Attach it, then activate</h2>
+      <p class="lede">
+        Open the <strong>GBP Console API</strong> workflow. Select the
+        <strong>Console GET</strong> node, set its Authentication credential to
+        <em>GBP Console Token</em>. Do the same on <strong>Console POST</strong>.
+        Save, then switch the workflow <strong>Active</strong>.
+      </p>
+      <div class="warn">
+        <strong>Order matters.</strong> Attach the credential to both nodes
+        <em>before</em> activating. An active webhook with no authentication is
+        an unauthenticated read of the entire database, open to anyone who finds
+        the URL.
+      </div>
+    </div>
+
+    <!-- 4 -->
+    <div class="step" id="s4">
+      <h2>Test and connect</h2>
+      <p class="lede">
+        Paste the webhook URL and the token. This page will call the API, tell
+        you precisely what came back, and hand the settings to the console.
+      </p>
+
+      <label class="field">
+        n8n webhook URL
+        <input type="url" id="endpoint" spellcheck="false" autocomplete="off"
+               value="https://n8n.assignover.in/webhook/gbp-console">
+      </label>
+
+      <label class="field">
+        Token <span style="color:var(--text-muted)">— just the random part, without the word Bearer</span>
+        <input type="password" id="token" spellcheck="false" autocomplete="off"
+               placeholder="paste the string from step 1">
+      </label>
+
+      <div class="qactions">
+        <button class="btn primary" id="test">Test connection</button>
+        <button class="btn" id="reveal" type="button">Show token</button>
+      </div>
+
+      <div class="result" id="result">
+        <div class="head"><span id="r-icon"></span><span id="r-title"></span></div>
+        <div id="r-body"></div>
+      </div>
+    </div>
+
+  </div>
+
+  <p class="hint section" style="max-width:760px">
+    The URL and token are stored in this browser only, and are readable by
+    anyone with access to this browser profile. Use a token scoped to the
+    console, and rotate it if the machine is shared.
+  </p>
+</main>
+
+<script>
+'use strict';
+
+const $ = (s) => document.querySelector(s);
+
+/* copy buttons */
+document.querySelectorAll('[data-copy]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const text = btn.parentElement.textContent.replace(/Copy$/, '').trim();
+    navigator.clipboard.writeText(text).then(
+      () => { btn.textContent = 'Copied'; setTimeout(() => { btn.textContent = 'Copy'; }, 1400); },
+      () => { btn.textContent = 'Press Ctrl+C'; }
+    );
+  });
+});
+
+$('#reveal').addEventListener('click', () => {
+  const f = $('#token');
+  const show = f.type === 'password';
+  f.type = show ? 'text' : 'password';
+  $('#reveal').textContent = show ? 'Hide token' : 'Show token';
+});
+
+/* prefill from a previous run, if any */
+try {
+  const ep = localStorage.getItem('gbp.endpoint');
+  if (ep) $('#endpoint').value = ep;
+} catch (_) { /* private mode */ }
+
+function report(kind, title, lines, extra) {
+  const box = $('#result');
+  box.className = 'result on ' + kind;
+  $('#r-icon').textContent = kind === 'ok' ? '✓' : '✕';
+  $('#r-title').textContent = title;
+  let html = '';
+  if (lines && lines.length) {
+    html += '<ul>' + lines.map((l) => '<li>' + l + '</li>').join('') + '</ul>';
+  }
+  if (extra) html += extra;
+  $('#r-body').innerHTML = html;
+}
+
+function markDone() {
+  ['s1', 's2', 's3', 's4'].forEach((id) => document.getElementById(id).classList.add('done'));
+}
+
+$('#test').addEventListener('click', async () => {
+  const endpoint = $('#endpoint').value.trim().replace(/\/+$/, '');
+  const token = $('#token').value.trim();
+  const btn = $('#test');
+
+  if (!endpoint || !token) {
+    report('bad', 'Both fields are needed', ['Enter the webhook URL and the token, then test again.']);
+    return;
+  }
+  if (/^bearer\s/i.test(token)) {
+    report('bad', 'Drop the word “Bearer”', [
+      'The token field takes only the random string. The console adds <code>Bearer </code> itself — leaving it in sends it twice and the request fails.'
+    ]);
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Testing…';
+
+  let res;
+  try {
+    res = await fetch(endpoint + '?action=overview', {
+      headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/json' }
+    });
+  } catch (err) {
+    report('bad', 'The request never reached n8n', [
+      'The workflow may not be <strong>Active</strong> — an inactive webhook answers nothing on its production URL.',
+      'Or the browser blocked it on CORS. The webhook allows <code>' + location.origin + '</code>; if you are opening this page from somewhere else, add that origin to <em>allowedOrigins</em> on both webhook nodes.',
+      'Or the URL is wrong. Check it against the <em>Production URL</em> shown on the Console GET node.',
+      '<span style="color:var(--text-muted)">Browser said: ' + (err.message || err) + '</span>'
+    ]);
+    btn.disabled = false; btn.textContent = 'Test connection';
+    return;
+  }
+
+  if (res.status === 401 || res.status === 403) {
+    report('bad', 'n8n answered, but rejected the token (' + res.status + ')', [
+      'The credential is attached — that is the good news, the webhook is reachable and guarded.',
+      'The Value field on the credential must read <code>Bearer </code> followed by this exact token.',
+      'Check the <em>Name</em> field is <code>Authorization</code> and not something else.'
+    ]);
+    btn.disabled = false; btn.textContent = 'Test connection';
+    return;
+  }
+
+  if (res.status === 404) {
+    report('bad', 'Nothing is listening at that URL (404)', [
+      'Most often this means the workflow is saved but not <strong>Active</strong>.',
+      'It can also mean the path differs — the node expects <code>gbp-console</code>.',
+      'A <em>Test URL</em> only answers while you have the editor open with “Listen for test event” running; the production URL is the one to use here.'
+    ]);
+    btn.disabled = false; btn.textContent = 'Test connection';
+    return;
+  }
+
+  if (!res.ok) {
+    report('bad', 'n8n returned ' + res.status + ' ' + res.statusText, [
+      'Open the workflow’s Executions tab — a failed run there will name the node that broke.'
+    ]);
+    btn.disabled = false; btn.textContent = 'Test connection';
+    return;
+  }
+
+  let data;
+  try {
+    data = await res.json();
+  } catch (_) {
+    report('bad', 'The response was not JSON', [
+      'The webhook answered, but with something the console cannot read.',
+      'Check that <strong>Send Dashboard</strong> responds with JSON and that the Respond node is wired to the Postgres node.'
+    ]);
+    btn.disabled = false; btn.textContent = 'Test connection';
+    return;
+  }
+
+  const counts = [
+    ['profiles', (data.locations || []).length],
+    ['scored', (data.health || []).length],
+    ['open actions', (data.recommendations || []).length],
+    ['replies waiting', (data.reviewQueue || []).length],
+    ['posts held', (data.postQueue || []).length],
+    ['months of data', (data.performance || []).length]
+  ];
+
+  try {
+    localStorage.setItem('gbp.endpoint', endpoint);
+    localStorage.setItem('gbp.token', token);
+  } catch (_) { /* private mode — the console will ask again */ }
+
+  markDone();
+  btn.textContent = 'Connected';
+
+  const chips = '<div class="found">' +
+    counts.map((c) => '<span>' + c[1] + ' ' + c[0] + '</span>').join('') +
+    '</div>';
+
+  const notes = [];
+  if ((data.locations || []).length < 2) {
+    notes.push('Only one profile came back. Welstays appears once it has a <code>gbp_locations</code> row.');
+  }
+  if ((data.trend || []).length < 2) {
+    notes.push('The score trend needs at least two audit dates before it draws.');
+  }
+  notes.push('Settings saved to this browser — the console will pick them up.');
+
+  report('ok', 'Connected. Live data is coming through.', notes,
+    chips + '<p style="margin-top:14px"><a class="btn primary" href="index.html" ' +
+    'style="text-decoration:none;display:inline-block">Open the console →</a></p>');
+});
+</script>
+</body>
+</html>

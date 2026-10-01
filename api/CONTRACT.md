@@ -152,9 +152,16 @@ Content-Type: application/json
 | action | effect |
 |---|---|
 | `approve_reply` | set `ai_suggested_reply = text`, `reply_status = 'pending'` on `gbp_reviews` |
-| `reject_reply`  | set `reply_status = 'rejected'` |
+| `reject_reply`  | set `reply_status = 'skipped'` on `gbp_reviews` — **not** `'rejected'`, see below |
 | `approve_post`  | set `summary = text`, `status = 'scheduled'`, `scheduled_for = now()` on `gbp_posts` |
-| `reject_post`   | set `status = 'rejected'` |
+| `reject_post`   | set `status = 'rejected'` on `gbp_posts` |
+
+The two rejects write different words, and the difference is not cosmetic. The
+`reply_status` CHECK constraint on `gbp_reviews` permits
+`none / pending / drafted / awaiting_approval / sent / failed / skipped` — there
+is no `'rejected'`, so writing it fails the whole statement. `gbp_posts.status`
+does allow `'rejected'`. Check the constraint before adding any new status
+value; this contract claimed `'rejected'` for both until the schema disagreed.
 
 Respond `{ "ok": true, "id": 101 }`, or a non-2xx with a message the console can
 display.

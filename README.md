@@ -43,6 +43,12 @@ python3 -m http.server 8080    # then open http://localhost:8080
 To connect it to live data, click **Demo data** in the header and enter the
 webhook URL and token. Both are kept in that browser only.
 
+If the n8n side is not set up yet, open **`setup.html`** instead. It walks
+through generating the token, creating the Header Auth credential, attaching it
+to both webhook nodes *before* activating the workflow, and then tests the
+connection — reporting what specifically failed rather than just "error" — and
+writes the endpoint and token for the console on success.
+
 ### Deploying to GitHub Pages
 
 Settings → Pages → Source: *Deploy from a branch* → `main` / `/ (root)`.
@@ -57,6 +63,7 @@ is why the page holds no data, and why it must stay that way.
 
 ```
 index.html           the console
+setup.html           four-step wizard for connecting it to n8n
 assets/              its stylesheet and script — no dependencies, no build
 api/CONTRACT.md      the JSON contract the n8n webhook must satisfy
 migrations/          Postgres schema, 001 → 011, run in order
