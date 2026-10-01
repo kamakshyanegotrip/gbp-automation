@@ -145,3 +145,16 @@ to carry other columns forward.
   whole database.
 - The console cannot delete anything, and cannot switch on autonomous
   publishing. Both are deliberate.
+
+**A recommendation's identity is a constraint, not a string.** `recommendation_id`
+once embedded `health_score_id`, which is new every audit, so
+`ON CONFLICT (recommendation_id)` could never fire and each run re-inserted the
+whole failing set — 67 open rows for 23 real checks. It is now a partial unique
+index on `(location_id, check_key) WHERE status = 'open'` (migration 013), which
+also lets a check regress after being resolved.
+
+**A passing check is invisible.** It simply does not appear in the audit
+payload, so nothing in the insert touches its row. Until migration 013 every
+issue ever raised stayed open forever, including the ones already fixed. The
+insert stamps `last_seen_health_score_id`; a row carrying an older stamp than
+the location's newest score is a check that now passes, and gets closed.

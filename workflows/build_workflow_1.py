@@ -424,16 +424,38 @@ ins_dims AS (
   RETURNING 1
 ),
 ins_reco AS (
+  -- Identity is the partial unique index on (location_id, check_key) WHERE
+  -- status = 'open' (migration 013), not recommendation_id. The old id
+  -- embedded health_score_id, which is new every run, so ON CONFLICT could
+  -- never fire and each audit re-inserted the whole failing set.
+  --
+  -- health_score_id is NOT updated on conflict: it records which audit first
+  -- raised the check. last_seen_health_score_id records the latest one, and
+  -- is what Resolve Fixed Recommendations reads to close checks that have
+  -- started passing.
+  --
+  -- DISTINCT ON guards the statement itself: ON CONFLICT DO UPDATE raises
+  -- "cannot affect row a second time" if one payload carries the same
+  -- check twice.
   INSERT INTO gbp_recommendations (
-    recommendation_id, health_score_id, location_id, dimension_key, check_key,
+    recommendation_id, health_score_id, last_seen_health_score_id,
+    location_id, dimension_key, check_key,
     priority, title, detail, points_recoverable
   )
-  SELECT
+  SELECT DISTINCT ON (s.location_id, r->>'check_key')
     'reco_' || s.id || '_' || (r->>'dimension_key') || '_' || (r->>'check_key'),
-    s.id, s.location_id, r->>'dimension_key', r->>'check_key',
+    s.id, s.id, s.location_id, r->>'dimension_key', r->>'check_key',
     r->>'priority', r->>'title', r->>'detail', (r->>'points_recoverable')::numeric
   FROM ins_score s, payload, jsonb_array_elements(p->'recommendations') r
-  ON CONFLICT (recommendation_id) DO NOTHING
+  WHERE r->>'check_key' IS NOT NULL
+  ON CONFLICT (location_id, check_key) WHERE status = 'open' AND check_key IS NOT NULL
+  DO UPDATE SET
+    last_seen_health_score_id = EXCLUDED.last_seen_health_score_id,
+    priority                  = EXCLUDED.priority,
+    title                     = EXCLUDED.title,
+    detail                    = EXCLUDED.detail,
+    points_recoverable        = EXCLUDED.points_recoverable,
+    updated_at                = now()
   RETURNING 1
 ),
 -- ---------------------------------------------------------------------------
