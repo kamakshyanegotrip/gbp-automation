@@ -1,5 +1,31 @@
 # Appeal: posting disabled on the Negotrip Business Profile
 
+## FILED 1 October 2026
+
+| Reference | What it is |
+|---|---|
+| **`0-8526000042027`** | The email case, from the submission confirmation. **Quote this one.** |
+| `3-4530000037663` | Shown as "case in progress" part-way through the form. Secondary. |
+
+Route taken: **not** the appeals tool. That refused it — selecting Negotrip
+returned *"No rejected content to appeal"*, confirming the documented regional
+limit (the tool handles profile suspensions only outside the UK/EEA). Filed
+instead through **Business Profile Manager → Help → Contact us → Posts removed
+→ Email**.
+
+Reply goes to `kn0733@gmail.com`. Decisions take up to 5 business days, so
+**chase from 8 October 2026**.
+
+**Two things to know if this has to be done again.** The flow routes a content
+restriction into the *suspended/disabled profile* evidence form, which demands a
+utility bill and tax certificates — documents that say nothing about a content
+decision. They are a tollgate, not the argument. And the free-text field is
+capped at **1000 characters**, so the full appeal below does not fit; the
+condensed version that was actually sent is in the git history of this file.
+
+---
+
+
 ## What happened
 
 On **3 June 2026** Google emailed `kn0733@gmail.com`:

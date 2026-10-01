@@ -334,6 +334,77 @@ label.field input {
 .banner.critical { border-left-color: var(--critical); }
 .banner strong { display: block; margin-bottom: 2px; }
 
+/* Open cases with Google -------------------------------------------------- */
+
+.cases { list-style: none; margin: 0; padding: 0; }
+
+.case {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+}
+.case:first-child { padding-top: 0; }
+.case:last-child  { padding-bottom: 0; border-bottom: 0; }
+
+/* The overdue marker is a left rule rather than a fill: the row still has to
+   be read, and a block of colour behind text costs contrast in both themes. */
+.case.is-overdue {
+  border-left: 3px solid var(--critical);
+  padding-left: 12px;
+  margin-left: -15px;
+}
+
+.case-top {
+  display: flex; flex-wrap: wrap; align-items: baseline;
+  gap: 8px; min-width: 0;
+}
+.case-top strong { min-width: 0; }
+
+.case-ref {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  background: var(--plane);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 1px 6px;
+  word-break: break-all;
+}
+
+.case-meta {
+  margin: 4px 0 0;
+  font-size: 0.84rem;
+  color: var(--text-muted);
+}
+
+.case-blocks {
+  margin: 7px 0 0;
+  font-size: 0.86rem;
+  color: var(--text-secondary);
+}
+.case-blocks span {
+  display: inline-block;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-right: 5px;
+}
+
+.chip {
+  display: inline-block;
+  font-size: 0.74rem;
+  border-radius: 999px;
+  padding: 1px 8px;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+/* Colour plus a word, never colour alone. */
+.chip.warn {
+  border-color: var(--critical);
+  color: var(--critical);
+}
+
 .sronly {
   position: absolute; width: 1px; height: 1px; overflow: hidden;
   clip: rect(0 0 0 0); white-space: nowrap;

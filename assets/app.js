@@ -248,6 +248,62 @@ function statTile(label, value, sub) {
           </div>`;
 }
 
+const CASE_KIND_LABEL = {
+  content_restriction: 'Content restriction',
+  suspension: 'Suspension',
+  reinstatement: 'Reinstatement',
+  api_allowlist: 'API allowlist',
+  review_removal: 'Review removal',
+  edit_rejected: 'Edit rejected',
+  other: 'Support case',
+};
+
+// Open cases with Google. Two things are called out loudly here, because both
+// have already cost this project months: a case with no reference recorded,
+// and a case past the date Google gave. Neither is a technical failure, which
+// is exactly why neither shows up anywhere else.
+function appealsHtml(d) {
+  const appeals = d.appeals || [];
+  if (!appeals.length) return '';
+
+  const overdueCount = appeals.filter((a) => a.overdue === true).length;
+
+  const items = appeals.map((a) => {
+    const days = Number(a.days_open);
+    const hasRef = !!a.case_reference;
+    return `
+      <li class="case ${a.overdue === true ? 'is-overdue' : ''}">
+        <div class="case-top">
+          <strong>${esc(a.subject)}</strong>
+          ${hasRef
+            ? `<code class="case-ref">${esc(a.case_reference)}</code>`
+            : '<span class="chip warn">no reference recorded</span>'}
+        </div>
+        <p class="case-meta">
+          ${esc(a.business_name || 'Account-wide')}
+          · ${esc(CASE_KIND_LABEL[a.case_kind] || a.case_kind)}
+          ${isFinite(days) ? ` · open ${days} day${days === 1 ? '' : 's'}` : ''}
+          ${a.filed_at ? ` · filed ${fmtDate(a.filed_at)}` : ' · not yet filed'}
+          ${a.overdue === true ? ' <span class="chip warn">past Google\'s own date</span>' : ''}
+        </p>
+        ${a.blocks ? `<p class="case-blocks"><span>Blocks</span> ${esc(a.blocks)}</p>` : ''}
+        ${a.outcome_clause
+          ? `<p class="case-blocks"><span>Clause cited</span> ${esc(a.outcome_clause)}</p>` : ''}
+      </li>`;
+  }).join('');
+
+  return `
+    <div class="section">
+      <div class="section-head">
+        <h2>Open with Google</h2>
+        <p>${overdueCount
+              ? `${overdueCount} past the date Google gave — chase on the reference, don't refile`
+              : 'Cases filed and awaiting a decision'}</p>
+      </div>
+      <div class="card"><ul class="cases">${items}</ul></div>
+    </div>`;
+}
+
 function viewOverview(d) {
   const health = d.health || [];
   const locs = d.locations || [];
@@ -307,6 +363,8 @@ function viewOverview(d) {
           `${recs.length} open recommendation${recs.length === 1 ? '' : 's'}`)}
       </div>
     </div>
+
+    ${appealsHtml(d)}
 
     <div class="section">
       <div class="section-head"><h2>Profiles</h2><p>Select a profile for its full breakdown</p></div>
@@ -740,6 +798,24 @@ function demoData() {
     generatedAt: today.toISOString(),
     clients: [
       { id: 1, client_code: 'demo-one', client_name: 'Sample Client', status: 'active' }
+    ],
+    // Two shapes on purpose: one case healthy, one overdue with no reference —
+    // the state the tracker exists to make impossible to overlook.
+    appeals: [
+      { id: 1, location_id: 1, business_name: 'Sample Travel Co',
+        case_kind: 'content_restriction', case_reference: '0-0000000000000',
+        subject: 'Posting disabled after a policy removal', channel: 'email',
+        status: 'awaiting_google',
+        filed_at: new Date(today.getTime() - 2 * 86400000).toISOString(),
+        days_open: 2, overdue: false,
+        blocks: 'All posts and photos until it is resolved.' },
+      { id: 2, location_id: null, business_name: null,
+        case_kind: 'api_allowlist', case_reference: null,
+        subject: 'API allowlist request', channel: 'form',
+        status: 'awaiting_google',
+        filed_at: new Date(today.getTime() - 23 * 86400000).toISOString(),
+        days_open: 23, overdue: true,
+        blocks: 'Reviews, posts and photos over the API.' }
     ],
     locations: [
       { id: 1, business_name: 'Sample Travel Co', city: 'Bhubaneswar', client_id: 1,
