@@ -13,7 +13,13 @@ On **3 June 2026** Google emailed `kn0733@gmail.com`:
 >
 > **Routing ID: DPNB**
 
-The email sat unread for three and a half months. Posting has been off since.
+The email sat unread until 20 September 2026, when the performance backfill
+surfaced it. Posting has been off since 3 June — close to four months as of
+1 October.
+
+**The delay does not weaken the appeal and should not be explained in it.**
+There is no deadline on a content restriction, and volunteering "I didn't read
+your email for three months" invites a question nobody asked.
 
 ## Profile identifiers
 
@@ -83,8 +89,8 @@ corrected. Admitting a specific fix lands far better than a blanket denial.
 >
 > **About the business.** Negotrip is a travel company based in Bhubaneswar,
 > Odisha, operating tour packages across Odisha and elsewhere in India. The
-> profile is verified and has been active for several years, with more than
-> twenty customer reviews and a consistent five-star rating.
+> profile is verified, has been active for several years and carries more than
+> twenty customer reviews.
 >
 > **About the post.** It advertised a guided pilgrimage tour package to the
 > Rath Yatra festival in Puri — a mainstream annual event and a standard product
