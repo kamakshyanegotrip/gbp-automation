@@ -228,3 +228,41 @@ the query, never interpolate.
   from suggest-only to autonomous publishing and should stay a deliberate
   database change, not a button.
 - Read or write Google directly. Everything goes through n8n.
+
+---
+
+## POST — profile content
+
+```jsonc
+{ "action": "save_profile_edit", "location_id": 1,
+  "description": "…", "services": [{ "display_name": "…", "description": "…" }],
+  "note": "why" }
+```
+
+| action | effect |
+|---|---|
+| `save_profile_edit` | upsert the single **draft** for that location. A key that is absent leaves that part of the profile alone; a key present and empty clears it. Partial saves merge |
+| `submit_profile_edit` | `location_id` — moves that draft to `pending` |
+| `cancel_profile_edit` | `id` — withdraws a draft, pending or failed edit |
+
+**Saving is not submitting.** They are separate actions so that nothing reaches
+Google because a textarea lost focus.
+
+`GBP Apply Profile Content` reads the `pending` rows, writes to Google, and
+marks each `applied` or `failed`. Its guards are unchanged and load-bearing:
+
+- `serviceItems` and `specialHours` are **replace-the-whole-list** on Google's
+  side. The applier reads the live list, merges, and **refuses to write a merged
+  list shorter than the existing one**.
+- `specialHours` are untouched unless the edit supplies them, rather than an
+  empty list being written over real holidays.
+- A description over 750 characters fails the row with a readable reason instead
+  of a 400 from Google.
+
+Only a service's **name** is sent. The console stores the description typed
+after `::` but does not write it, because the free-form service field shape is
+unverified — the published docs were already wrong about `categoryId`, and
+guessing a second field risks a silent failure on a live profile.
+
+The console also reads `services` (the live list) and `profileEdits` (edits
+still in play, failed ones included) from the GET payload.

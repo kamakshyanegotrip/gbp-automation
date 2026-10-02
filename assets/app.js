@@ -749,8 +749,87 @@ function viewSettings(d) {
       <p class="hint">Closing needs an outcome. "unanswered" is a real one — use it rather than leaving a dead case open.</p>
     </div>`).join('');
 
+  // Services go in and out as "Name :: description" lines. A table of inputs
+  // would be more precise and far worse to use for a list this short; the
+  // separator is :: because service names contain commas and dashes.
+  const servicesToText = (rows) => rows
+    .map((s) => s.description ? `${s.display_name} :: ${s.description}` : s.display_name)
+    .join('\n');
+
+  const edits = d.profileEdits || [];
+  const allServices = d.services || [];
+
+  const profileRows = locs.map((l) => {
+    const edit = edits.find((e) => String(e.location_id) === String(l.id));
+    const live = allServices.filter((s) => String(s.location_id) === String(l.id));
+
+    // An unapplied edit wins over the live list, otherwise re-opening the page
+    // would quietly discard what was typed yesterday.
+    const serviceText = edit && Array.isArray(edit.services)
+      ? servicesToText(edit.services)
+      : servicesToText(live);
+
+    const state = !edit ? ''
+      : edit.status === 'failed'
+        ? `<div class="banner critical"><strong>The last attempt failed</strong>${esc(edit.apply_error || '')}</div>`
+        : edit.status === 'pending'
+          ? `<div class="banner"><strong>Queued</strong>Submitted ${relTime(edit.submitted_at)} — waiting for the applier to run.</div>`
+          : `<div class="banner"><strong>Draft saved</strong>Not submitted. Nothing has been sent to Google.</div>`;
+
+    return `
+      <div class="qcard" data-profile="${esc(l.id)}">
+        <div class="qhead"><div>
+          <div class="who">${esc(l.business_name)}</div>
+          <div class="meta">${live.length} service${live.length === 1 ? '' : 's'} on the profile now</div>
+        </div></div>
+        ${state}
+        <label class="field">Business description
+          <textarea class="draft" id="pe-desc-${esc(l.id)}" rows="5"
+            placeholder="Leave empty to leave the current description untouched.">${esc(edit && edit.description != null ? edit.description : '')}</textarea>
+        </label>
+        <label class="field">Services — one per line, <code>Name :: description</code>
+          <textarea class="draft" id="pe-svc-${esc(l.id)}" rows="6">${esc(serviceText)}</textarea>
+        </label>
+        <label class="field">Why (kept with the change)
+          <input type="text" id="pe-note-${esc(l.id)}" value="${esc(edit && edit.note || '')}">
+        </label>
+        <div class="qactions">
+          <button class="btn" data-save-profile="${esc(l.id)}" ${cfg.configured ? '' : 'disabled'}>Save draft</button>
+          <button class="btn primary" data-submit-profile="${esc(l.id)}" ${cfg.configured ? '' : 'disabled'}>Submit to Google</button>
+          <button class="btn" data-ask="pe-desc-${esc(l.id)}" ${cfg.configured ? '' : 'disabled'}>Ask Claude</button>
+          <span class="meta" style="color:var(--text-muted);font-size:0.8rem" data-status="pe-${esc(l.id)}"></span>
+        </div>
+        <p class="hint">
+          <strong>The service list is sent whole.</strong> Google has no partial
+          update for services — whatever is in that box becomes the entire list.
+          The applier carries the existing services forward and refuses a merged
+          list shorter than the live one, so removing a service deliberately
+          takes a second step. Only the name is sent; the text after
+          <code>::</code> is kept here but not written to Google, because that
+          field's shape is unverified.
+        </p>
+        <p class="hint">
+          Submitting queues the change. <strong>Nothing is sent until the Apply
+          Profile Content workflow runs</strong>, and that workflow needs the
+          Business Profile API, which is still waiting on the allowlist. Until
+          then a submitted edit sits queued.
+        </p>
+      </div>`;
+  }).join('');
+
   return `
     ${banner}
+    <div class="section">
+      <div class="section-head">
+        <h2>Profile content</h2>
+        <p>Description and services. Saving is not submitting.</p>
+      </div>
+      <div class="queue">${locs.length ? profileRows : '<div class="card"><p class="empty">No profiles.</p></div>'}</div>
+      <p class="hint">
+        Opening hours are not editable here yet — the schema carries them but the
+        editor does not, so they stay a workflow change for now.
+      </p>
+    </div>
     <div class="section">
       <div class="section-head"><h2>Profiles</h2><p>What gets audited, and where reports go</p></div>
       <div class="queue">${locs.length ? locRows : '<div class="card"><p class="empty">No profiles.</p></div>'}</div>
@@ -1004,6 +1083,47 @@ document.addEventListener('click', (e) => {
     }, 'loc-' + id, 'Saved').catch(() => {});
   }
 
+  if (t.dataset && (t.dataset.saveProfile || t.dataset.submitProfile)) {
+    const id = t.dataset.saveProfile || t.dataset.submitProfile;
+    const submitting = !!t.dataset.submitProfile;
+    const desc = $('#pe-desc-' + CSS.escape(id)).value;
+    const svcText = $('#pe-svc-' + CSS.escape(id)).value;
+
+    // "Name :: description", one per line. Blank lines are dropped rather than
+    // becoming an empty service, which Google would reject anyway.
+    const services = svcText.split('\n').map((line) => {
+      const raw = line.trim();
+      if (!raw) return null;
+      const i = raw.indexOf('::');
+      return i === -1
+        ? { display_name: raw }
+        : { display_name: raw.slice(0, i).trim(), description: raw.slice(i + 2).trim() };
+    }).filter(Boolean).filter((s) => s.display_name);
+
+    const body = {
+      action: 'save_profile_edit',
+      location_id: id,
+      note: $('#pe-note-' + CSS.escape(id)).value.trim()
+    };
+    // Only send what was actually filled in: an absent key means "leave that
+    // part of the profile alone", which is not the same as sending "".
+    if (desc.trim()) body.description = desc.trim();
+    if (services.length) body.services = services;
+
+    if (!body.description && !body.services) {
+      document.querySelector(`[data-status="pe-${CSS.escape(id)}"]`).textContent =
+        'Nothing to save — fill in a description or some services.';
+      return;
+    }
+
+    return send(t, body, 'pe-' + id, submitting ? 'Saved' : 'Draft saved')
+      .then(() => submitting
+        ? send(t, { action: 'submit_profile_edit', location_id: id }, 'pe-' + id, 'Queued for the applier')
+            .then(() => load())
+        : load())
+      .catch(() => {});
+  }
+
   if (t.dataset && t.dataset.saveClient) {
     const id = t.dataset.saveClient;
     return send(t, {
@@ -1096,6 +1216,14 @@ function demoData() {
     clients: [
       { id: 1, client_code: 'demo-one', client_name: 'Sample Client', status: 'active' }
     ],
+    services: [
+      { location_id: 1, service_key: 'svc_tour', display_name: 'Odisha tour packages',
+        description: 'Guided multi-day itineraries across Odisha.',
+        price_amount_micros: null, price_currency: null },
+      { location_id: 1, service_key: 'svc_transfer', display_name: 'Airport transfers',
+        description: null, price_amount_micros: null, price_currency: null }
+    ],
+    profileEdits: [],
     // Two shapes on purpose: one case healthy, one overdue with no reference —
     // the state the tracker exists to make impossible to overlook.
     appeals: [
