@@ -516,6 +516,7 @@ function viewApprovals(d) {
         <div class="qactions">
           <button class="btn primary" data-approve-reply="${esc(r.id)}" ${cfg.configured ? '' : 'disabled'}>Approve &amp; send</button>
           <button class="btn danger" data-reject-reply="${esc(r.id)}" ${cfg.configured ? '' : 'disabled'}>Reject</button>
+          <button class="btn" data-ask="reply-${esc(r.id)}" ${cfg.configured ? '' : 'disabled'}>Ask Claude</button>
           <span class="meta" style="color:var(--text-muted);font-size:0.8rem" data-status="${esc(r.id)}"></span>
         </div>
       </div>`;
@@ -534,13 +535,59 @@ function viewApprovals(d) {
       ${p.cta_url ? `<p class="hint">CTA ${esc(p.cta_type || '')} → ${esc(p.cta_url)}</p>` : ''}
       <div class="qactions">
         <button class="btn primary" data-approve-post="${esc(p.id)}" ${cfg.configured ? '' : 'disabled'}>Approve</button>
+        <button class="btn" data-save-post="${esc(p.id)}" ${cfg.configured ? '' : 'disabled'}>Save draft</button>
         <button class="btn danger" data-reject-post="${esc(p.id)}" ${cfg.configured ? '' : 'disabled'}>Reject</button>
+        <button class="btn" data-ask="post-${esc(p.id)}" ${cfg.configured ? '' : 'disabled'}>Ask Claude</button>
         <span class="meta" style="color:var(--text-muted);font-size:0.8rem" data-status="${esc(p.id)}"></span>
       </div>
     </div>`).join('');
 
+  const locOptions = (d.locations || [])
+    .map((l) => `<option value="${esc(l.id)}">${esc(l.business_name)}</option>`).join('');
+
+  const ctaOptions = ['', 'BOOK', 'ORDER', 'SHOP', 'LEARN_MORE', 'SIGN_UP', 'CALL', 'GET_OFFER']
+    .map((c) => `<option value="${c}">${c || 'No call to action'}</option>`).join('');
+
+  // Writing a post by hand. It lands in the same queue as an automated draft
+  // and still has to be approved — the console never publishes.
+  const compose = `
+    <div class="section">
+      <div class="section-head">
+        <h2>Write a post</h2>
+        <p>Goes into the queue below as a draft. Approving is still a separate act.</p>
+      </div>
+      <div class="card">
+        <div class="grid two">
+          <label class="field">Profile
+            <select id="new-post-loc">${locOptions || '<option value="">No profiles</option>'}</select>
+          </label>
+          <label class="field">Call to action
+            <select id="new-post-cta">${ctaOptions}</select>
+          </label>
+        </div>
+        <label class="field">Post text
+          <textarea class="draft" id="new-post-text" rows="5"
+            placeholder="What are you telling people?"></textarea>
+        </label>
+        <label class="field">Link
+          <input type="url" id="new-post-url" placeholder="https://negotrip.in/..." spellcheck="false">
+        </label>
+        <div class="qactions">
+          <button class="btn primary" id="new-post-save" ${cfg.configured ? '' : 'disabled'}>Add to queue</button>
+          <button class="btn" data-ask="new-post-text" ${cfg.configured ? '' : 'disabled'}>Ask Claude</button>
+          <span class="meta" style="color:var(--text-muted);font-size:0.8rem" data-status="new-post"></span>
+        </div>
+        <p class="hint">
+          Posting is switched off on the Negotrip profile until the content
+          appeal is decided, so a post approved now waits in the queue rather
+          than publishing.
+        </p>
+      </div>
+    </div>`;
+
   return `
     ${connBanner}
+    ${compose}
     <div class="section">
       <div class="section-head"><h2>Review replies</h2><p>${reviews.length} awaiting approval</p></div>
       <div class="queue">${reviews.length ? reviewCards : '<div class="card"><p class="empty">Queue is clear.</p></div>'}</div>
@@ -607,6 +654,117 @@ function viewPortal(d, clientId) {
    Render & events
    ========================================================================== */
 
+// Settings deliberately stops short of the two switches that would turn this
+// from suggest-only into autonomous publishing. Those stay a deliberate
+// database change; a button is too easy to press by accident.
+function viewSettings(d) {
+  const locs = d.locations || [];
+  const clients = d.clients || [];
+  const appeals = d.appeals || [];
+
+  const banner = cfg.configured ? '' : `
+    <div class="banner">
+      <strong>Demo mode — nothing here saves</strong>
+      Connect a live endpoint to change settings.
+    </div>`;
+
+  const locRows = locs.map((l) => `
+    <div class="qcard" data-setting-loc="${esc(l.id)}">
+      <div class="qhead"><div>
+        <div class="who">${esc(l.business_name)}</div>
+        <div class="meta">${esc(l.client_name || 'unassigned')}${l.city ? ' · ' + esc(l.city) : ''}</div>
+      </div></div>
+      <div class="grid two">
+        <label class="field">Audited
+          <select id="loc-audit-${esc(l.id)}">
+            <option value="true"  ${l.audit_enabled === true ? 'selected' : ''}>Yes</option>
+            <option value="false" ${l.audit_enabled === true ? '' : 'selected'}>No</option>
+          </select>
+        </label>
+        <label class="field">Report emails
+          <input type="text" id="loc-mail-${esc(l.id)}" value="${esc(l.notify_emails || '')}"
+                 placeholder="comma separated" spellcheck="false">
+        </label>
+      </div>
+      <div class="qactions">
+        <button class="btn primary" data-save-loc="${esc(l.id)}" ${cfg.configured ? '' : 'disabled'}>Save</button>
+        <span class="meta" style="color:var(--text-muted);font-size:0.8rem" data-status="loc-${esc(l.id)}"></span>
+      </div>
+      <p class="hint">
+        Auto-reply ${l.auto_reply_enabled ? 'on' : 'off'} · auto-post
+        ${l.auto_post_enabled ? 'on' : 'off'} — both changed in the database only.
+      </p>
+    </div>`).join('');
+
+  const clientRows = clients.map((c) => `
+    <div class="qcard">
+      <div class="qhead"><div>
+        <div class="who">${esc(c.client_name)}</div>
+        <div class="meta">${esc(c.client_code)}</div>
+      </div></div>
+      <div class="grid two">
+        <label class="field">Name
+          <input type="text" id="cli-name-${esc(c.id)}" value="${esc(c.client_name || '')}">
+        </label>
+        <label class="field">Status
+          <select id="cli-status-${esc(c.id)}">
+            ${['active', 'paused', 'offboarding', 'closed'].map((s) =>
+              `<option value="${s}" ${c.status === s ? 'selected' : ''}>${s}</option>`).join('')}
+          </select>
+        </label>
+      </div>
+      <div class="qactions">
+        <button class="btn primary" data-save-client="${esc(c.id)}" ${cfg.configured ? '' : 'disabled'}>Save</button>
+        <span class="meta" style="color:var(--text-muted);font-size:0.8rem" data-status="cli-${esc(c.id)}"></span>
+      </div>
+    </div>`).join('');
+
+  const appealRows = appeals.map((a) => `
+    <div class="qcard">
+      <div class="qhead"><div>
+        <div class="who">${esc(a.subject)}</div>
+        <div class="meta">${a.case_reference ? esc(a.case_reference) : 'no reference'} ·
+          ${esc(a.business_name || 'account-wide')}${a.overdue ? ' · overdue' : ''}</div>
+      </div></div>
+      <div class="grid two">
+        <label class="field">What Google said
+          <select id="app-outcome-${esc(a.id)}">
+            <option value="">No decision yet</option>
+            ${['granted', 'partial', 'refused', 'unanswered', 'withdrawn'].map((o) =>
+              `<option value="${o}" ${a.outcome === o ? 'selected' : ''}>${o}</option>`).join('')}
+          </select>
+        </label>
+        <label class="field">Case reference
+          <input type="text" id="app-ref-${esc(a.id)}" value="${esc(a.case_reference || '')}" spellcheck="false">
+        </label>
+      </div>
+      <label class="field">Clause they cited, if any
+        <input type="text" id="app-clause-${esc(a.id)}" value="${esc(a.outcome_clause || '')}">
+      </label>
+      <div class="qactions">
+        <button class="btn primary" data-save-appeal="${esc(a.id)}" ${cfg.configured ? '' : 'disabled'}>Record</button>
+        <button class="btn" data-close-appeal="${esc(a.id)}" ${cfg.configured ? '' : 'disabled'}>Record &amp; close</button>
+        <span class="meta" style="color:var(--text-muted);font-size:0.8rem" data-status="app-${esc(a.id)}"></span>
+      </div>
+      <p class="hint">Closing needs an outcome. "unanswered" is a real one — use it rather than leaving a dead case open.</p>
+    </div>`).join('');
+
+  return `
+    ${banner}
+    <div class="section">
+      <div class="section-head"><h2>Profiles</h2><p>What gets audited, and where reports go</p></div>
+      <div class="queue">${locs.length ? locRows : '<div class="card"><p class="empty">No profiles.</p></div>'}</div>
+    </div>
+    <div class="section">
+      <div class="section-head"><h2>Clients</h2><p>${clients.length} on the books</p></div>
+      <div class="queue">${clients.length ? clientRows : '<div class="card"><p class="empty">No clients.</p></div>'}</div>
+    </div>
+    <div class="section">
+      <div class="section-head"><h2>Open with Google</h2><p>Record a decision when one arrives</p></div>
+      <div class="queue">${appeals.length ? appealRows : '<div class="card"><p class="empty">No open cases.</p></div>'}</div>
+    </div>`;
+}
+
 function render() {
   const main = $('#main');
   const d = state.data;
@@ -627,6 +785,7 @@ function render() {
   else if (state.view === 'location')  html = viewLocation(d, state.locationId);
   else if (state.view === 'approvals') html = viewApprovals(d);
   else if (state.view === 'portal')    html = viewPortal(d, state.clientId);
+  else if (state.view === 'settings')  html = viewSettings(d);
   main.innerHTML = html;
 
   document.querySelectorAll('nav.views button').forEach((b) => {
@@ -716,6 +875,77 @@ async function act(btn, action, id, textEl, verb) {
   }
 }
 
+// A write that is not approve-or-reject: no card to fade, just a status line.
+async function send(btn, body, statusKey, done) {
+  const statusEl = document.querySelector(`[data-status="${CSS.escape(statusKey)}"]`);
+  btn.disabled = true;
+  if (statusEl) statusEl.textContent = 'Saving…';
+  try {
+    const res = await apiPost(body.action, body);
+    if (res && res.ok === false) throw new Error('nothing matched — the row may have changed');
+    if (statusEl) statusEl.textContent = done;
+    return res;
+  } catch (err) {
+    if (statusEl) statusEl.textContent = 'Failed: ' + (err.message || err);
+    throw err;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+/* ---------- the Claude panel ---------- */
+
+// Which editor the answer goes back into. Set when the dialog opens so that
+// "put this in the editor" cannot land in the wrong box.
+const ai = { targetId: null };
+
+function openAi(targetId) {
+  ai.targetId = targetId;
+  const dlg = $('#ai-dialog');
+  const target = document.getElementById(targetId);
+  const existing = target && target.value.trim();
+  $('#ai-context-note').textContent = existing
+    ? 'The current text in that editor will be sent along with your request.'
+    : 'That editor is empty, so only your request is sent.';
+  $('#ai-out').hidden = true;
+  $('#ai-result').value = '';
+  $('#ai-prompt').value = '';
+  dlg.showModal();
+  $('#ai-prompt').focus();
+}
+
+async function runAi() {
+  const btn = $('#ai-run');
+  const ask = $('#ai-prompt').value.trim();
+  if (!ask) { $('#ai-prompt').focus(); return; }
+  const target = ai.targetId ? document.getElementById(ai.targetId) : null;
+  const existing = target ? target.value.trim() : '';
+
+  // The model sees only what is assembled here. Nothing about the business is
+  // attached implicitly, which is why the dialog says so.
+  const prompt = existing
+    ? `Current text:\n\n${existing}\n\n---\n\n${ask}`
+    : ask;
+
+  btn.disabled = true;
+  const original = btn.textContent;
+  btn.textContent = 'Thinking…';
+  try {
+    const res = await apiPost('ask_claude', { prompt });
+    if (!res || !res.ok) throw new Error((res && res.error) || 'no text came back');
+    $('#ai-result').value = res.text || '';
+    $('#ai-out').hidden = false;
+    $('#ai-result').focus();
+  } catch (err) {
+    $('#ai-result').value = '';
+    $('#ai-out').hidden = false;
+    $('#ai-context-note').textContent = 'Failed: ' + (err.message || err);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = original;
+  }
+}
+
 document.addEventListener('click', (e) => {
   const t = e.target;
 
@@ -735,6 +965,73 @@ document.addEventListener('click', (e) => {
     return act(t, 'approve_post', t.dataset.approvePost, $('#post-' + CSS.escape(t.dataset.approvePost)), 'Approved');
   if (t.dataset && t.dataset.rejectPost)
     return act(t, 'reject_post', t.dataset.rejectPost, null, 'Rejected');
+
+  if (t.dataset && t.dataset.ask) return openAi(t.dataset.ask);
+
+  if (t.dataset && t.dataset.savePost) {
+    const id = t.dataset.savePost;
+    const el = $('#post-' + CSS.escape(id));
+    return send(t, { action: 'save_post', id, text: el ? el.value.trim() : '' }, id, 'Saved');
+  }
+
+  if (t.id === 'new-post-save') {
+    const loc = $('#new-post-loc');
+    const text = $('#new-post-text').value.trim();
+    if (!text) {
+      document.querySelector('[data-status="new-post"]').textContent = 'Write something first.';
+      return;
+    }
+    return send(t, {
+      action: 'create_post',
+      location_id: loc ? loc.value : '',
+      text,
+      cta_type: $('#new-post-cta').value,
+      cta_url: $('#new-post-url').value.trim()
+    }, 'new-post', 'Added to the queue').then(() => {
+      $('#new-post-text').value = '';
+      $('#new-post-url').value = '';
+      load();
+    }).catch(() => {});
+  }
+
+  if (t.dataset && t.dataset.saveLoc) {
+    const id = t.dataset.saveLoc;
+    return send(t, {
+      action: 'update_location',
+      location_id: id,
+      audit_enabled: $('#loc-audit-' + CSS.escape(id)).value,
+      notify_emails: $('#loc-mail-' + CSS.escape(id)).value.trim()
+    }, 'loc-' + id, 'Saved').catch(() => {});
+  }
+
+  if (t.dataset && t.dataset.saveClient) {
+    const id = t.dataset.saveClient;
+    return send(t, {
+      action: 'update_client',
+      id,
+      client_name: $('#cli-name-' + CSS.escape(id)).value.trim(),
+      status: $('#cli-status-' + CSS.escape(id)).value
+    }, 'cli-' + id, 'Saved').catch(() => {});
+  }
+
+  if (t.dataset && (t.dataset.saveAppeal || t.dataset.closeAppeal)) {
+    const id = t.dataset.saveAppeal || t.dataset.closeAppeal;
+    const closing = !!t.dataset.closeAppeal;
+    const outcome = $('#app-outcome-' + CSS.escape(id)).value;
+    if (closing && !outcome) {
+      document.querySelector(`[data-status="app-${CSS.escape(id)}"]`).textContent =
+        'Pick what Google said before closing it.';
+      return;
+    }
+    return send(t, {
+      action: 'record_appeal',
+      id,
+      outcome,
+      case_reference: $('#app-ref-' + CSS.escape(id)).value.trim(),
+      outcome_clause: $('#app-clause-' + CSS.escape(id)).value.trim(),
+      status: closing ? 'closed' : (outcome ? 'responded' : '')
+    }, 'app-' + id, closing ? 'Closed' : 'Recorded').then(() => { if (closing) load(); }).catch(() => {});
+  }
 });
 
 /* ---------- connection dialog ---------- */
@@ -881,6 +1178,27 @@ function demoData() {
 
 /* ---------- boot ---------- */
 
+function initAi() {
+  const dlg = $('#ai-dialog');
+  if (!dlg) return;
+  $('#ai-run').addEventListener('click', runAi);
+  $('#ai-again').addEventListener('click', () => {
+    $('#ai-out').hidden = true;
+    $('#ai-prompt').focus();
+  });
+  $('#ai-close').addEventListener('click', () => dlg.close());
+  $('#ai-use').addEventListener('click', () => {
+    const target = ai.targetId ? document.getElementById(ai.targetId) : null;
+    if (target) {
+      target.value = $('#ai-result').value;
+      target.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    dlg.close();
+    if (target) target.focus();
+  });
+}
+
 initConnection();
 initTheme();
+initAi();
 load();

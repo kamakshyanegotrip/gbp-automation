@@ -318,10 +318,23 @@ dialog {
 }
 dialog::backdrop { background: rgba(0,0,0,0.45); }
 label.field { display: block; margin: 14px 0; font-size: 0.85rem; color: var(--text-secondary); }
-label.field input {
+/* select and textarea were added with the editing views; without them here the
+   new forms fell back to browser defaults and read as a different product. */
+label.field input,
+label.field select,
+label.field textarea {
   display: block; width: 100%; margin-top: 5px; font: inherit; font-size: 0.9rem;
   padding: 9px 10px; border-radius: 8px;
   border: 1px solid var(--border); background: var(--plane); color: var(--text-primary);
+}
+label.field textarea { resize: vertical; line-height: 1.5; min-height: 70px; }
+
+/* The dialog's answer block. Separated by a rule rather than a panel, so the
+   suggestion does not look like something already saved. */
+.ai-out {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
 }
 .hint { font-size: 0.8rem; color: var(--text-muted); margin: 10px 0 0; }
 

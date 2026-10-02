@@ -22,6 +22,7 @@
       <button data-view="overview"  aria-current="true">Overview</button>
       <button data-view="approvals" aria-current="false">Approvals</button>
       <button data-view="portal"    aria-current="false">Client report</button>
+      <button data-view="settings"  aria-current="false">Settings</button>
     </nav>
 
     <button class="conn" id="conn" title="Connection settings">
@@ -81,6 +82,42 @@
       <button class="btn danger" id="conn-clear" style="margin-left:auto">Disconnect</button>
     </div>
   </form>
+</dialog>
+
+<dialog id="ai-dialog">
+  <h2>Ask Claude</h2>
+  <p class="hint" style="margin-top:6px">
+    Drafting only. Nothing here reaches Google, and nothing is saved until you
+    put the text into the editor and approve it yourself.
+  </p>
+
+  <label class="field">
+    What do you want?
+    <textarea id="ai-prompt" rows="3"
+      placeholder="Shorten this and drop the exclamation marks. Or: write a reply thanking them for the Konark feedback."></textarea>
+  </label>
+
+  <p class="hint" id="ai-context-note"></p>
+
+  <div class="qactions" style="margin-top:12px">
+    <button class="btn primary" id="ai-run" type="button">Ask</button>
+    <button class="btn" id="ai-close" type="button" style="margin-left:auto">Close</button>
+  </div>
+
+  <div id="ai-out" class="ai-out" hidden>
+    <label class="field">
+      Suggested text
+      <textarea id="ai-result" rows="6"></textarea>
+    </label>
+    <div class="qactions">
+      <button class="btn primary" id="ai-use" type="button">Put this in the editor</button>
+      <button class="btn" id="ai-again" type="button">Ask again</button>
+    </div>
+    <p class="hint">
+      Read it before you use it. It was written from your prompt alone — it has
+      not seen the review, the profile or anything else unless you pasted it in.
+    </p>
+  </div>
 </dialog>
 
 <script src="assets/app.js"></script>

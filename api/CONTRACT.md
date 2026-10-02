@@ -149,6 +149,11 @@ Content-Type: application/json
 { "action": "approve_reply", "id": 101, "text": "the final wording" }
 ```
 
+The whole body arrives at the database as **one jsonb parameter**. Operator text
+is never interpolated, and adding an action needs no change to the node's
+parameter wiring. `text` is still untrusted input — that is the point of the
+single parameter, not an excuse to relax.
+
 | action | effect |
 |---|---|
 | `approve_reply` | set `ai_suggested_reply = text`, `reply_status = 'pending'` on `gbp_reviews` |
@@ -163,8 +168,47 @@ is no `'rejected'`, so writing it fails the whole statement. `gbp_posts.status`
 does allow `'rejected'`. Check the constraint before adding any new status
 value; this contract claimed `'rejected'` for both until the schema disagreed.
 
+| `save_post` | set `summary`, `cta_type`, `cta_url` — **without** approving, so a draft can be worked on across sessions |
+| `create_post` | insert a post written by a person: `location_id` + `text`, optional `cta_type`, `cta_url`, `topic_type`. Lands as `awaiting_approval` with `generated_by = 'operator'` |
+| `update_location` | `location_id` plus `audit_enabled` and/or `notify_emails` — **and nothing else** |
+| `update_client` | `id` plus `client_name`, `contact_email`, `notify_emails`, `status` |
+| `record_appeal` | `id` plus `outcome`, `outcome_clause`, `case_reference`, `notes`, `status`. Setting an outcome stamps `responded_at`; `status: "closed"` stamps `closed_at` |
+
+`update_location` deliberately cannot touch `auto_reply_enabled` or
+`auto_post_enabled`. Those switch the system from suggest-only to autonomous
+publishing and stay a deliberate database change. Sending them is not an error —
+they are simply ignored, so a caller cannot enable publishing by guessing a
+field name.
+
 Respond `{ "ok": true, "id": 101 }`, or a non-2xx with a message the console can
-display.
+display. `ok: false` with a 200 means the action was understood but matched no
+row — a stale id, usually.
+
+---
+
+## POST — drafting
+
+```jsonc
+{ "action": "ask_claude", "prompt": "Shorten this and drop the exclamation marks." }
+```
+
+The one action that is not a database write. It exists because the console is a
+static page on GitHub Pages and **cannot hold the Anthropic key** — putting it in
+the page source would publish it. The webhook already has the credential, so the
+request is routed to `https://api.anthropic.com/v1/messages` behind the same
+bearer auth as everything else.
+
+Returns `{ "ok": true, "action": "ask_claude", "text": "…", "error": null }`.
+
+**It drafts and nothing more.** The answer goes back to an editor for a human to
+read, change and approve. Nothing is written to `gbp_reviews` or `gbp_posts` on
+this path, and nothing reaches Google. The system prompt forbids inventing facts
+about the business, because a plausible invented price or date in a published
+reply is worse than a vague one.
+
+The model sees only the prompt the console assembles — the current editor text,
+if any, plus what the operator typed. No profile data, no reviews and no
+database content are attached implicitly.
 
 **Approving sets state, it does not publish.** The existing Review Response and
 Content Management workflows pick up `pending` / `scheduled` rows on their next
