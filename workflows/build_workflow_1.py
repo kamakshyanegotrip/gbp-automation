@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Generate the GBP Main Audit workflow JSON for n8n import."""
-import json, pathlib
+import json, pathlib, sys
 
 CRED_GOOGLE = {"id": "pMOKted8v0rROW9p", "name": "GBP Automation OAuth"}
 CRED_PG     = {"id": "73038PPSx78LOwXp", "name": "GBP Postgres"}
 CRED_GMAIL  = {"id": "kSrGTNfsbOFylPXx", "name": "Gmail - info@negotrip.com"}
 CRED_ANTHROPIC = {"id": "B1UfRtUbk4dYzhuw", "name": "Anthropic API"}
 
+PIN = "--pin" in sys.argv
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 SCORER = (REPO_ROOT / "scoring" / "health-score.js").read_text(encoding="utf-8")
 # Strip the module.exports block — n8n's Code sandbox has no module system.
@@ -141,6 +142,22 @@ const reviewStats = {
     .map((r) => r.created).sort()[0] || null,
 };
 
+// --- review rows ------------------------------------------------------------
+// The audit is the only place that sees every review with its current reply
+// state. Email-sourced rows carry the bare review id, so match that shape.
+const reviewRows = parsed.map((r) => ({
+  google_review_id: String((r.raw && r.raw.name) || '').split('/').pop() || null,
+  reviewer_display_name: (r.raw.reviewer && r.raw.reviewer.displayName) || null,
+  is_anonymous: !!(r.raw.reviewer && r.raw.reviewer.isAnonymous),
+  star_rating: r.rating,
+  comment: r.raw.comment || null,
+  review_created_at: r.created || null,
+  review_updated_at: r.raw.updateTime || null,
+  reply_comment: r.raw.reviewReply ? (r.raw.reviewReply.comment || null) : null,
+  reply_updated_at: r.replied,
+  response_latency_hours: r.latency,
+})).filter((r) => r.google_review_id && r.star_rating >= 1 && r.star_rating <= 5);
+
 // --- services from the location resource ------------------------------------
 const services = (locationRes.serviceItems || []).map((s, i) => ({
   service_key: s.structuredServiceItem
@@ -256,6 +273,10 @@ return [{
       // must never be read as "the profile has no photos".
       media_ok: mediaFetch.ok,
       services_ok: true,
+      // Reviews are only reconciled when the fetch succeeded; a 403 must
+      // never be read as "every review is unanswered".
+      reviews: reviewRows,
+      reviews_ok: reviewsFetch.ok,
     },
   },
 }];
@@ -549,6 +570,60 @@ del_services AS (
     )
   RETURNING 1
 ),
+ins_reviews AS (
+  -- Google is authoritative about what a review says and whether it has been
+  -- answered. It is NOT authoritative about an operator's draft, so
+  -- reply_status only ever moves TO 'sent', never back into the queue and
+  -- never to 'pending' — 'pending' is what the Review Response workflow
+  -- publishes, and nothing here may cause a reply to be sent.
+  --
+  -- source is deliberately not updated on conflict: the console builds a
+  -- business.google.com link for email-sourced rows, and overwriting source
+  -- with 'api' would silently remove that link.
+  INSERT INTO gbp_reviews (
+    location_id, google_review_id, reviewer_display_name, is_anonymous,
+    star_rating, comment, comment_truncated, review_created_at, review_updated_at,
+    reply_comment, reply_updated_at, reply_source, reply_status,
+    response_latency_hours, source, first_seen_at, last_synced_at
+  )
+  SELECT
+    s.location_id,
+    rv->>'google_review_id',
+    NULLIF(rv->>'reviewer_display_name','null'),
+    COALESCE((rv->>'is_anonymous')::boolean, false),
+    (rv->>'star_rating')::int,
+    NULLIF(rv->>'comment','null'),
+    false,
+    NULLIF(rv->>'review_created_at','null')::timestamp,
+    NULLIF(rv->>'review_updated_at','null')::timestamp,
+    NULLIF(rv->>'reply_comment','null'),
+    NULLIF(rv->>'reply_updated_at','null')::timestamp,
+    CASE WHEN rv->>'reply_comment' IS NOT NULL THEN 'imported' END,
+    CASE WHEN rv->>'reply_comment' IS NOT NULL THEN 'sent' ELSE 'none' END,
+    NULLIF(rv->>'response_latency_hours','null')::numeric,
+    'api', now(), now()
+  FROM ins_score s, payload, jsonb_array_elements(p->'reviews') rv
+  WHERE COALESCE((p->>'reviews_ok')::boolean, false)
+    AND rv->>'google_review_id' IS NOT NULL
+  ON CONFLICT (google_review_id) DO UPDATE SET
+    reviewer_display_name  = COALESCE(EXCLUDED.reviewer_display_name, gbp_reviews.reviewer_display_name),
+    star_rating            = EXCLUDED.star_rating,
+    comment                = COALESCE(EXCLUDED.comment, gbp_reviews.comment),
+    comment_truncated      = CASE WHEN EXCLUDED.comment IS NOT NULL
+                                  THEN false ELSE gbp_reviews.comment_truncated END,
+    review_updated_at      = COALESCE(EXCLUDED.review_updated_at, gbp_reviews.review_updated_at),
+    reply_comment          = COALESCE(EXCLUDED.reply_comment, gbp_reviews.reply_comment),
+    reply_updated_at       = COALESCE(EXCLUDED.reply_updated_at, gbp_reviews.reply_updated_at),
+    response_latency_hours = COALESCE(EXCLUDED.response_latency_hours, gbp_reviews.response_latency_hours),
+    reply_source           = CASE WHEN EXCLUDED.reply_comment IS NOT NULL
+                                  THEN COALESCE(gbp_reviews.reply_source, 'imported')
+                                  ELSE gbp_reviews.reply_source END,
+    reply_status           = CASE WHEN EXCLUDED.reply_comment IS NOT NULL
+                                  THEN 'sent' ELSE gbp_reviews.reply_status END,
+    last_synced_at         = now(),
+    updated_at             = now()
+  RETURNING 1
+),
 ins_perf AS (
   INSERT INTO gbp_performance_metrics (
     location_id, metric_date,
@@ -630,6 +705,29 @@ WHERE location_id = $1::int
   AND deleted_at IS NULL
   AND published_at > now() - INTERVAL '120 days';"""
 
+SQL_RESOLVE = """WITH latest AS (
+  SELECT id, location_id FROM gbp_health_scores WHERE id = $1::int
+),
+upd AS (
+  UPDATE gbp_recommendations r
+     SET status        = 'resolved',
+         resolved_at   = now(),
+         resolved_note = 'check passed on the audit of ' || to_char(now(), 'YYYY-MM-DD'),
+         updated_at    = now()
+    FROM latest l
+   WHERE r.status = 'open'
+     AND r.check_key IS NOT NULL
+     AND r.location_id = l.location_id
+     AND r.last_seen_health_score_id IS DISTINCT FROM l.id
+  RETURNING r.id
+)
+SELECT
+  (SELECT count(*) FROM upd) AS newly_resolved,
+  (SELECT count(*) FROM gbp_recommendations
+    WHERE status = 'open'
+      AND location_id = (SELECT location_id FROM latest)) AS still_open;"""
+
+
 READ_MASK = ",".join([
     "name", "title", "storefrontAddress", "websiteUri", "phoneNumbers",
     "categories", "regularHours", "specialHours", "profile", "openInfo",
@@ -638,7 +736,7 @@ READ_MASK = ",".join([
 
 
 def node(name, ntype, ver, pos, params, creds=None, on_error=None, notes=None,
-         always_output=False):
+         always_output=False, execute_once=False):
     n = {
         "parameters": params,
         "id": name.lower().replace(" ", "-"),
@@ -658,6 +756,9 @@ def node(name, ntype, ver, pos, params, creds=None, on_error=None, notes=None,
     if always_output:
         # A query that legitimately returns no rows must not stop the chain.
         n["alwaysOutputData"] = True
+    if execute_once:
+        # Runs on the audit as a whole, not once per incoming row.
+        n["executeOnce"] = True
     return n
 
 
@@ -785,7 +886,7 @@ nodes = [
     node("Calculate Health Score", "n8n-nodes-base.code", 2, [1760, 300], {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": ASSEMBLE,
+        "jsCode": ASSEMBLE.rstrip("\n"),
     }, notes="Weighted 25/20/20/15/10/10 scoring engine"),
 
     node("Save Audit Results", "n8n-nodes-base.postgres", 2.7, [1980, 300], {
@@ -836,15 +937,61 @@ nodes = [
         "message": "={{ $('Build Email').first().json.html }}",
         "options": {"appendAttribution": False},
     }, {"gmailOAuth2": CRED_GMAIL}),
+
+    node("Resolve Fixed Recommendations", "n8n-nodes-base.postgres", 2.7, [1980, 520], {
+        "operation": "executeQuery",
+        "query": SQL_RESOLVE,
+        "options": {"queryReplacement": "={{ [ $json.health_score_id ] }}"},
+    }, {"postgres": CRED_PG}, always_output=True, execute_once=True,
+       notes="Closes recommendations whose check has started passing. A passing check is "
+             "simply absent from the audit payload, so nothing in the insert touches its "
+             "row; before migration 013 that meant every issue ever raised stayed open "
+             "forever, including the ones already fixed. The insert stamps "
+             "last_seen_health_score_id on every row it raises, so an open row for this "
+             "location carrying an older stamp is a check that now passes."),
 ]
 
-order = [n["name"] for n in nodes]
+# The graph is not a single line: Save Audit Results fans out to the Claude
+# summary and to the resolver, which runs independently of the email.
+CHAIN = [
+    "Weekly Schedule", "Get Locations To Audit", "Start Audit Run",
+    "Get Recent Posts", "Fetch Location Details", "Fetch Attributes",
+    "Fetch Media", "Fetch Reviews", "Fetch Performance",
+    "Calculate Health Score", "Save Audit Results", "Claude Summary",
+    "Build Email", "Finish Audit Run", "Email Report",
+]
+EXTRA_EDGES = [("Save Audit Results", "Resolve Fixed Recommendations")]
+
+_names = {n["name"] for n in nodes}
+for _n in CHAIN + [b for _, b in EXTRA_EDGES]:
+    assert _n in _names, f"CHAIN references a node that does not exist: {_n}"
+assert _names == set(CHAIN) | {b for _, b in EXTRA_EDGES}, (
+    "every node must appear in CHAIN or EXTRA_EDGES, or it is built but never wired")
+
 connections = {}
-for a, b in zip(order, order[1:]):
-    connections[a] = {"main": [[{"node": b, "type": "main", "index": 0}]]}
+def _wire(a, b):
+    connections.setdefault(a, {"main": [[]]})["main"][0].append(
+        {"node": b, "type": "main", "index": 0})
+
+for a, b in zip(CHAIN, CHAIN[1:]):
+    _wire(a, b)
+for a, b in EXTRA_EDGES:
+    _wire(a, b)
 
 # ---------------------------------------------------------------------------
-# Pinned sample data so the workflow is runnable before Google approves access
+# Pinned sample data, OFF unless --pin is passed.
+#
+# Read this before turning it on. These fixtures were pinned on the live
+# workflow from the start and nobody noticed: every health score up to
+# 2 October 2026 described locations/1234567890123456789 — a business that does
+# not exist, with 2 services and a 156-character description — while the real
+# profile had 34 services and 741 characters. Months of scores, trends and
+# recommendations were fiction. The API has been allowlisted since 2 Oct and
+# the Google My Business API enabled since 4 Oct, so there is no longer any
+# reason to run on fixtures.
+#
+# If you do pass --pin, the generated JSON carries pinData and importing it
+# re-pins the live workflow. Unpin all five fetch nodes before trusting a score.
 # ---------------------------------------------------------------------------
 def days_ago_iso(n):
     from datetime import datetime, timedelta, timezone
@@ -940,7 +1087,7 @@ workflow = {
     "name": "GBP Main Audit",
     "nodes": nodes,
     "connections": connections,
-    "pinData": pin_data,
+    "pinData": pin_data if PIN else {},
     "settings": {"executionOrder": "v1", "saveManualExecutions": True,
                  "callerPolicy": "workflowsFromSameOwner"},
     "meta": {"instanceId": "gbp-automation"},
@@ -951,3 +1098,8 @@ out = REPO_ROOT / "workflows" / "GBP_Main_Audit.json"
 out.parent.mkdir(exist_ok=True)
 out.write_text(json.dumps(workflow, indent=2))
 print(f"Wrote {out}  ({out.stat().st_size:,} bytes, {len(nodes)} nodes)")
+if PIN:
+    print("WARNING: --pin embedded test fixtures. Importing this JSON pins the five "
+          "fetch nodes and every score it produces will be fiction. Unpin before use.")
+else:
+    print("No pinned data: the workflow will read the live profile.")
