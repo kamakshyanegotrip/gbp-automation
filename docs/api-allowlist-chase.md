@@ -1,3 +1,21 @@
+> **RESOLVED — 4 October 2026. Nothing in this document needs doing.**
+>
+> The allowlist for case `5-4868000041887` was **granted**: the quota page read
+> 300 requests/minute on 2 October 2026, and the OAuth credential works.
+>
+> A separate problem remained and is also fixed. The allowlist covers the
+> Business Information, Account Management and Performance APIs. Photos and
+> reviews are served by the **legacy v4 API `mybusiness.googleapis.com`**, which
+> had never been enabled in project `683796039477` (`gbp-automation-507508`).
+> Those two calls returned `403 SERVICE_DISABLED` and the audit scored the
+> profile as having zero photos and zero reviews. The API was enabled on
+> 4 October 2026 and the first complete audit ran the same day.
+>
+> Kept for the record of how the case was pursued. **Do not send the draft
+> below.**
+
+---
+
 # Chasing the GBP API allowlist — case 5-4868000041887
 
 **Status at 1 October 2026:** 23 days past Google's own estimate, no reply in

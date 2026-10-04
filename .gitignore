@@ -16,3 +16,6 @@ __pycache__/
 
 # Archives — rebuild from source instead
 *.zip
+
+# Build output — regenerate with `python3 workflows/build_workflow_1.py`
+workflows/*.json

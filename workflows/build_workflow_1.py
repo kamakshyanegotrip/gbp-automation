@@ -7,7 +7,8 @@ CRED_PG     = {"id": "73038PPSx78LOwXp", "name": "GBP Postgres"}
 CRED_GMAIL  = {"id": "kSrGTNfsbOFylPXx", "name": "Gmail - info@negotrip.com"}
 CRED_ANTHROPIC = {"id": "B1UfRtUbk4dYzhuw", "name": "Anthropic API"}
 
-SCORER = pathlib.Path("scoring/health-score.js").read_text()
+REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
+SCORER = (REPO_ROOT / "scoring" / "health-score.js").read_text(encoding="utf-8")
 # Strip the module.exports block — n8n's Code sandbox has no module system.
 SCORER = SCORER.split("module.exports")[0].rstrip()
 
@@ -240,6 +241,7 @@ return [{
         services_score: result.services_score,
         previous_score: result.previous_score,
         score_delta: result.score_delta,
+        is_valid: attrFetch.ok && mediaFetch.ok && reviewsFetch.ok,
       },
       dimensions: result.dimensions,
       recommendations: result.recommendations,
@@ -349,7 +351,8 @@ SQL_GET_LOCATIONS = """SELECT
   l.verification_state,
   COALESCE(l.notify_emails, 'kn0733@gmail.com') AS notify_emails,
   (SELECT overall_score FROM gbp_health_scores hs
-     WHERE hs.location_id = l.id ORDER BY hs.scored_at DESC LIMIT 1) AS previous_score
+     WHERE hs.location_id = l.id AND hs.is_valid
+     ORDER BY hs.scored_at DESC LIMIT 1) AS previous_score
 FROM gbp_locations l
 WHERE l.is_active
   AND l.audit_enabled
@@ -380,7 +383,8 @@ SELECT
   l.verification_state,
   COALESCE(NULLIF(TRIM(l.notify_emails), ''), 'kn0733@gmail.com') AS notify_emails,
   (SELECT overall_score FROM gbp_health_scores hs
-     WHERE hs.location_id = l.id ORDER BY hs.scored_at DESC LIMIT 1) AS previous_score
+     WHERE hs.location_id = l.id AND hs.is_valid
+     ORDER BY hs.scored_at DESC LIMIT 1) AS previous_score
 FROM ins
 JOIN gbp_locations l ON l.id = ins.location_id;"""
 
@@ -393,7 +397,7 @@ ins_score AS (
     run_id, location_id, overall_score, grade,
     business_info_score, photos_score, reviews_score,
     profile_score, content_score, services_score,
-    previous_score, score_delta
+    previous_score, score_delta, is_valid
   )
   SELECT
     (p->'score'->>'run_id')::int,
@@ -407,9 +411,11 @@ ins_score AS (
     (p->'score'->>'content_score')::numeric,
     (p->'score'->>'services_score')::numeric,
     NULLIF(p->'score'->>'previous_score', 'null')::numeric,
-    NULLIF(p->'score'->>'score_delta', 'null')::numeric
+    NULLIF(p->'score'->>'score_delta', 'null')::numeric,
+    COALESCE((p->'score'->>'is_valid')::boolean, true)
   FROM payload
-  ON CONFLICT (run_id) DO UPDATE SET overall_score = EXCLUDED.overall_score
+  ON CONFLICT (run_id) DO UPDATE SET overall_score = EXCLUDED.overall_score,
+                                     is_valid      = EXCLUDED.is_valid
   RETURNING id, location_id
 ),
 ins_dims AS (
@@ -941,7 +947,7 @@ workflow = {
     "tags": [],
 }
 
-out = pathlib.Path("workflows/GBP_Main_Audit.json")
+out = REPO_ROOT / "workflows" / "GBP_Main_Audit.json"
 out.parent.mkdir(exist_ok=True)
 out.write_text(json.dumps(workflow, indent=2))
 print(f"Wrote {out}  ({out.stat().st_size:,} bytes, {len(nodes)} nodes)")
