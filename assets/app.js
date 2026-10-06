@@ -405,6 +405,31 @@ function viewLocation(d, locId) {
                  'points if all actions cleared')}
     </div>` : '<div class="banner"><strong>Not yet audited</strong>This profile has no health score. Run the audit workflow to generate one.</div>';
 
+  // Each recommendation is joined to whatever the optimizer has already done
+  // about it. The classification of what can be generated lives in the
+  // workflow, not here: every check offers a Fix, and one that cannot be
+  // generated answers with the reason instead of content.
+  const fixable = d.fixable || [];
+  const fixByRec = {};
+  fixable.forEach((f) => { fixByRec[String(f.recommendation_id)] = f; });
+
+  function fixCell(r) {
+    const f = fixByRec[String(r.id)];
+    const key = f && f.check_key;
+    if (!key) { return '<span style="color:var(--text-muted)">—</span>'; }
+    const sk = 'fix-' + key;
+    if (f.fix_status === 'generated' || f.fix_status === 'queued') {
+      return `<span class="flag info">in review</span>
+        <div style="color:var(--text-secondary);font-size:0.8rem">${num(f.fix_item_count)} drafted</div>`;
+    }
+    if (f.fix_status === 'failed') {
+      return `<button class="btn" data-fix="${esc(key)}" data-fix-loc="${esc(r.location_id)}">Retry</button>
+        <div class="flag critical" style="margin-top:4px">${esc(f.fix_error || 'failed')}</div>`;
+    }
+    return `<button class="btn primary" data-fix="${esc(key)}" data-fix-loc="${esc(r.location_id)}">Fix</button>
+      <div data-status="${esc(sk)}" style="color:var(--text-secondary);font-size:0.8rem"></div>`;
+  }
+
   const recRows = recs.length ? recs.map((r) => `
     <tr>
       <td><span class="flag ${r.priority === 'critical' ? 'critical' : (r.priority === 'high' ? 'warning' : 'info')}">
@@ -413,6 +438,7 @@ function viewLocation(d, locId) {
           <div style="color:var(--text-secondary);font-size:0.85rem">${esc(r.detail || '')}</div></td>
       <td class="hide-sm" style="color:var(--text-muted);font-size:0.85rem">${esc(r.dimension_name || '')}</td>
       <td class="num">${r.points_recoverable == null ? '—' : '+' + num(r.points_recoverable, 1)}</td>
+      <td>${fixCell(r)}</td>
     </tr>`).join('') : '';
 
   const perfRows = perf.map((p) => `
@@ -455,10 +481,15 @@ function viewLocation(d, locId) {
     </div>` : ''}
 
     <div class="section">
-      <div class="section-head"><h2>Open recommendations</h2><p>highest priority first</p></div>
+      <div class="section-head">
+        <h2>Open recommendations</h2>
+        <p>highest priority first</p>
+        ${recs.length ? `<button class="btn primary" data-fix-all="${esc(locId)}">Fix everything</button>
+          <span data-status="fix-all" style="color:var(--text-secondary);font-size:0.85rem"></span>` : ''}
+      </div>
       <div class="card">
         ${recs.length ? `<table>
-          <thead><tr><th>Priority</th><th>Action</th><th class="hide-sm">Dimension</th><th class="num">Points</th></tr></thead>
+          <thead><tr><th>Priority</th><th>Action</th><th class="hide-sm">Dimension</th><th class="num">Points</th><th>Fix</th></tr></thead>
           <tbody>${recRows}</tbody></table>`
         : '<p class="empty">Nothing open. Either the profile is in good shape, or it has not been audited.</p>'}
       </div>
@@ -1025,8 +1056,45 @@ async function runAi() {
   }
 }
 
+// Running the optimizer is a generate-and-file action, never a publish. A
+// check that cannot be generated answers with the reason, which is shown
+// as-is rather than being translated into a guess about why.
+async function runOptimizer(btn, checkKey, locationId, statusKey) {
+  const statusEl = document.querySelector(`[data-status="${CSS.escape(statusKey)}"]`);
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Writing…';
+  if (statusEl) statusEl.textContent = '';
+  try {
+    const body = { location_id: locationId };
+    if (checkKey) { body.check_key = checkKey; }
+    const res = await apiPost('run_optimizer', body);
+    const n = (res && res.generated) || 0;
+    if (n > 0) {
+      if (statusEl) statusEl.textContent = n + ' drafted — waiting for approval';
+      await load();
+    } else if (statusEl) {
+      statusEl.textContent = res && res.reason ? res.reason : 'nothing to generate';
+    }
+  } catch (err) {
+    if (statusEl) statusEl.textContent = 'Failed: ' + (err.message || err);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = label;
+  }
+}
+
 document.addEventListener('click', (e) => {
   const t = e.target;
+
+  const fixBtn = t.closest('[data-fix]');
+  if (fixBtn) {
+    return runOptimizer(fixBtn, fixBtn.dataset.fix, fixBtn.dataset.fixLoc, 'fix-' + fixBtn.dataset.fix);
+  }
+  const fixAll = t.closest('[data-fix-all]');
+  if (fixAll) {
+    return runOptimizer(fixAll, null, fixAll.dataset.fixAll, 'fix-all');
+  }
 
   const loc = t.closest('[data-goto-location]');
   if (loc) { state.view = 'location'; state.locationId = loc.dataset.gotoLocation; render(); window.scrollTo(0, 0); return; }

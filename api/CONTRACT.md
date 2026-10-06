@@ -192,6 +192,36 @@ row — a stale id, usually.
 { "action": "ask_claude", "prompt": "Shorten this and drop the exclamation marks." }
 ```
 
+### `run_optimizer`
+
+```json
+{ "action": "run_optimizer", "location_id": 1, "check_key": "service_descriptions" }
+```
+
+Omit `check_key` to work every outstanding check at once.
+
+The second action that is not a plain database write. It calls the **GBP
+Optimizer** workflow, which reads the open recommendations, generates what it
+can honestly write, and files the result as a **draft**. It never sets a review
+to `pending` and never submits a profile edit — `pending` is what publishes.
+
+Returns `{ ok, action, generated, check_key, mode, reason, profile_edit_id,
+reviews_drafted }`.
+
+`generated` is the number of items written. When it is `0`, `mode` says why and
+`reason` is the message to show:
+
+| mode | meaning |
+|---|---|
+| `generated` | content was written and is waiting for approval |
+| `ask` | the answer is a fact only the owner knows — opening hours, a booking URL, a price, a photograph. Nothing is generated |
+| `blocked` | the fix cannot be published yet; posts are blocked pending appeal `0-8526000042027` |
+| `none` | nothing outstanding for that check |
+
+**A check that refuses is not a failure.** The optimizer will not publish
+invented opening hours to buy back 0.72 points, and it will not point a booking
+link at a homepage. It returns the question instead, and the console shows it.
+
 The one action that is not a database write. It exists because the console is a
 static page on GitHub Pages and **cannot hold the Anthropic key** — putting it in
 the page source would publish it. The webhook already has the credential, so the
