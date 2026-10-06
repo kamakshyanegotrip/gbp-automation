@@ -390,6 +390,12 @@ FROM ins
 JOIN gbp_locations l ON l.id = ins.location_id;"""
 
 SQL_SAVE = """-- Single-parameter, injection-safe write of the whole audit result.
+--
+-- Deliberately absent: any write to gbp_reviews. GBP Review Response owns that
+-- table — it paginates every 4 hours and stores the full resource name, which
+-- is the only form PUT /v4/{name}/reply accepts. A second writer here keyed on
+-- the bare review id and produced a duplicate row per review. review_stats
+-- below is computed from this workflow's own fetch and is unaffected.
 WITH payload AS (
   SELECT $1::jsonb AS p
 ),
