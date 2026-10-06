@@ -142,22 +142,6 @@ const reviewStats = {
     .map((r) => r.created).sort()[0] || null,
 };
 
-// --- review rows ------------------------------------------------------------
-// The audit is the only place that sees every review with its current reply
-// state. Email-sourced rows carry the bare review id, so match that shape.
-const reviewRows = parsed.map((r) => ({
-  google_review_id: String((r.raw && r.raw.name) || '').split('/').pop() || null,
-  reviewer_display_name: (r.raw.reviewer && r.raw.reviewer.displayName) || null,
-  is_anonymous: !!(r.raw.reviewer && r.raw.reviewer.isAnonymous),
-  star_rating: r.rating,
-  comment: r.raw.comment || null,
-  review_created_at: r.created || null,
-  review_updated_at: r.raw.updateTime || null,
-  reply_comment: r.raw.reviewReply ? (r.raw.reviewReply.comment || null) : null,
-  reply_updated_at: r.replied,
-  response_latency_hours: r.latency,
-})).filter((r) => r.google_review_id && r.star_rating >= 1 && r.star_rating <= 5);
-
 // --- services from the location resource ------------------------------------
 const services = (locationRes.serviceItems || []).map((s, i) => ({
   service_key: s.structuredServiceItem
@@ -273,10 +257,6 @@ return [{
       // must never be read as "the profile has no photos".
       media_ok: mediaFetch.ok,
       services_ok: true,
-      // Reviews are only reconciled when the fetch succeeded; a 403 must
-      // never be read as "every review is unanswered".
-      reviews: reviewRows,
-      reviews_ok: reviewsFetch.ok,
     },
   },
 }];
@@ -568,60 +548,6 @@ del_services AS (
     AND gbp_services.service_key NOT IN (
       SELECT sv->>'service_key' FROM jsonb_array_elements(p->'services') sv
     )
-  RETURNING 1
-),
-ins_reviews AS (
-  -- Google is authoritative about what a review says and whether it has been
-  -- answered. It is NOT authoritative about an operator's draft, so
-  -- reply_status only ever moves TO 'sent', never back into the queue and
-  -- never to 'pending' — 'pending' is what the Review Response workflow
-  -- publishes, and nothing here may cause a reply to be sent.
-  --
-  -- source is deliberately not updated on conflict: the console builds a
-  -- business.google.com link for email-sourced rows, and overwriting source
-  -- with 'api' would silently remove that link.
-  INSERT INTO gbp_reviews (
-    location_id, google_review_id, reviewer_display_name, is_anonymous,
-    star_rating, comment, comment_truncated, review_created_at, review_updated_at,
-    reply_comment, reply_updated_at, reply_source, reply_status,
-    response_latency_hours, source, first_seen_at, last_synced_at
-  )
-  SELECT
-    s.location_id,
-    rv->>'google_review_id',
-    NULLIF(rv->>'reviewer_display_name','null'),
-    COALESCE((rv->>'is_anonymous')::boolean, false),
-    (rv->>'star_rating')::int,
-    NULLIF(rv->>'comment','null'),
-    false,
-    NULLIF(rv->>'review_created_at','null')::timestamp,
-    NULLIF(rv->>'review_updated_at','null')::timestamp,
-    NULLIF(rv->>'reply_comment','null'),
-    NULLIF(rv->>'reply_updated_at','null')::timestamp,
-    CASE WHEN rv->>'reply_comment' IS NOT NULL THEN 'imported' END,
-    CASE WHEN rv->>'reply_comment' IS NOT NULL THEN 'sent' ELSE 'none' END,
-    NULLIF(rv->>'response_latency_hours','null')::numeric,
-    'api', now(), now()
-  FROM ins_score s, payload, jsonb_array_elements(p->'reviews') rv
-  WHERE COALESCE((p->>'reviews_ok')::boolean, false)
-    AND rv->>'google_review_id' IS NOT NULL
-  ON CONFLICT (google_review_id) DO UPDATE SET
-    reviewer_display_name  = COALESCE(EXCLUDED.reviewer_display_name, gbp_reviews.reviewer_display_name),
-    star_rating            = EXCLUDED.star_rating,
-    comment                = COALESCE(EXCLUDED.comment, gbp_reviews.comment),
-    comment_truncated      = CASE WHEN EXCLUDED.comment IS NOT NULL
-                                  THEN false ELSE gbp_reviews.comment_truncated END,
-    review_updated_at      = COALESCE(EXCLUDED.review_updated_at, gbp_reviews.review_updated_at),
-    reply_comment          = COALESCE(EXCLUDED.reply_comment, gbp_reviews.reply_comment),
-    reply_updated_at       = COALESCE(EXCLUDED.reply_updated_at, gbp_reviews.reply_updated_at),
-    response_latency_hours = COALESCE(EXCLUDED.response_latency_hours, gbp_reviews.response_latency_hours),
-    reply_source           = CASE WHEN EXCLUDED.reply_comment IS NOT NULL
-                                  THEN COALESCE(gbp_reviews.reply_source, 'imported')
-                                  ELSE gbp_reviews.reply_source END,
-    reply_status           = CASE WHEN EXCLUDED.reply_comment IS NOT NULL
-                                  THEN 'sent' ELSE gbp_reviews.reply_status END,
-    last_synced_at         = now(),
-    updated_at             = now()
   RETURNING 1
 ),
 ins_perf AS (
